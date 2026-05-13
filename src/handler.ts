@@ -34,7 +34,7 @@ function menuText(): string {
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `🤖 *Bot Assistant Nihongo no Benkyo*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `Halo Tuan! Ada yang bisa saya bantu? 😊\n\n` +
+    `Halo Pak! Ada yang bisa saya bantu? 😊\n\n` +
     `Silakan pilih menu:\n\n` +
     `1️⃣  *Booking Baru*\n` +
     `2️⃣  *Ubah Jadwal Booking*\n` +
