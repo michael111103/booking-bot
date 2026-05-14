@@ -29,7 +29,6 @@ function parseTanggal(input: string): string | null {
 }
 
 function parseJam(input: string): string | null {
-  // Format: HH:MM atau HH.MM
   const match = input.match(/^(\d{1,2})[:.](\d{2})$/)
   if (!match) return null
   const [, hour, minute] = match
@@ -54,6 +53,8 @@ function menuText(): string {
     `_Ketik angka untuk memilih menu_`
   )
 }
+
+const REMINDER_PHONE = '+6289682037538'
 
 // ── Main Handler ──────────────────────────────────────────────────────────────
 
@@ -93,8 +94,6 @@ export async function handleMessage(phone: string, message: string): Promise<voi
     case 'idle':
       await handleMenu(phone, text)
       break
-
-    // Booking baru
     case 'booking_nama':
       await handleBookingNama(phone, text)
       break
@@ -119,8 +118,6 @@ export async function handleMessage(phone: string, message: string): Promise<voi
     case 'booking_konfirmasi':
       await handleBookingKonfirmasi(phone, text)
       break
-
-    // Edit booking
     case 'edit_cari':
       await handleEditCari(phone, text)
       break
@@ -142,8 +139,6 @@ export async function handleMessage(phone: string, message: string): Promise<voi
     case 'edit_konfirmasi':
       await handleEditKonfirmasi(phone, text)
       break
-
-    // Hapus booking
     case 'hapus_cari':
       await handleHapusCari(phone, text)
       break
@@ -153,7 +148,6 @@ export async function handleMessage(phone: string, message: string): Promise<voi
     case 'hapus_konfirmasi':
       await handleHapusKonfirmasi(phone, text)
       break
-
     default:
       updateSession(phone, { state: 'menu' })
       await sendMessage(phone, menuText())
@@ -238,7 +232,6 @@ async function handleMenu(phone: string, text: string) {
         `_Ketik "batal" untuk membatalkan_`
       )
       break
-
     case '2':
       updateSession(phone, { state: 'edit_cari', editDraft: {} })
       await sendMessage(
@@ -248,11 +241,9 @@ async function handleMenu(phone: string, text: string) {
         `_Contoh: "Michael" atau "08123456789"_`
       )
       break
-
     case '3':
       await handleListBooking(phone)
       break
-
     case '4':
       updateSession(phone, { state: 'edit_cari', editDraft: { selected: { cariOnly: true } } })
       await sendMessage(
@@ -261,7 +252,6 @@ async function handleMenu(phone: string, text: string) {
         `Masukkan *nama* atau *nomor telepon* peserta:`
       )
       break
-
     case '5':
       updateSession(phone, { state: 'hapus_cari', editDraft: {} })
       await sendMessage(
@@ -271,7 +261,6 @@ async function handleMenu(phone: string, text: string) {
         `_Contoh: "Michael" atau "08123456789"_`
       )
       break
-
     default:
       await sendMessage(phone, `❓ Perintah tidak dikenali.\n\n` + menuText())
   }
@@ -433,7 +422,6 @@ async function handleBookingKota(phone: string, text: string) {
   const session = getSession(phone)
   const draft = { ...session.bookingDraft, kota: text }
   updateSession(phone, { state: 'booking_konfirmasi', bookingDraft: draft })
-
   await sendMessage(
     phone,
     `📋 *KONFIRMASI BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
@@ -457,15 +445,12 @@ async function handleBookingKonfirmasi(phone: string, text: string) {
     await sendMessage(phone, `❌ Booking dibatalkan.\n\n` + menuText())
     return
   }
-
   if (text.toLowerCase() !== 'konfirmasi') {
     await sendMessage(phone, `⚠️ Ketik *"konfirmasi"* untuk menyimpan atau *"batal"* untuk membatalkan.`)
     return
   }
-
   const session = getSession(phone)
   const draft = session.bookingDraft
-
   const { error } = await supabase.from('bookings').insert([{
     nama: draft.nama,
     nomor_telepon: draft.nomor_telepon,
@@ -476,12 +461,10 @@ async function handleBookingKonfirmasi(phone: string, text: string) {
     kota: draft.kota,
     created_by: phone,
   }])
-
   if (error) {
-    await sendMessage(phone, `❌ Gagal menyimpan booking. Silakan coba lagi.\n\nError: ${error.message}`)
+    await sendMessage(phone, `❌ Gagal menyimpan booking.\n\nError: ${error.message}`)
     return
   }
-
   updateSession(phone, { state: 'menu', bookingDraft: {} })
   await sendMessage(
     phone,
@@ -504,7 +487,6 @@ async function handleEditCari(phone: string, text: string) {
     await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
     return
   }
-
   const { data: results } = await supabase
     .from('bookings')
     .select('*')
@@ -542,10 +524,7 @@ async function handleEditCari(phone: string, text: string) {
   }
 
   if (results.length === 1) {
-    updateSession(phone, {
-      state: 'edit_tanggal',
-      editDraft: { selected: results[0] },
-    })
+    updateSession(phone, { state: 'edit_tanggal', editDraft: { selected: results[0] } })
     await sendMessage(
       phone,
       `✏️ *EDIT BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
@@ -563,11 +542,7 @@ async function handleEditCari(phone: string, text: string) {
     return
   }
 
-  updateSession(phone, {
-    state: 'edit_pilih',
-    editDraft: { searchResults: results },
-  })
-
+  updateSession(phone, { state: 'edit_pilih', editDraft: { searchResults: results } })
   let msg = `✏️ *DITEMUKAN ${results.length} DATA*\n━━━━━━━━━━━━━━━━\n\n`
   results.forEach((b, i) => {
     msg +=
@@ -584,18 +559,12 @@ async function handleEditPilih(phone: string, text: string) {
   const session = getSession(phone)
   const results = session.editDraft.searchResults || []
   const idx = parseInt(text) - 1
-
   if (isNaN(idx) || idx < 0 || idx >= results.length) {
     await sendMessage(phone, `❌ Pilihan tidak valid. Ketik angka 1 sampai ${results.length}:`)
     return
   }
-
   const selected = results[idx]
-  updateSession(phone, {
-    state: 'edit_tanggal',
-    editDraft: { selected },
-  })
-
+  updateSession(phone, { state: 'edit_tanggal', editDraft: { selected } })
   await sendMessage(
     phone,
     `✏️ *EDIT BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
@@ -617,10 +586,8 @@ async function handleEditTanggal(phone: string, text: string) {
     await sendMessage(phone, `❌ Edit dibatalkan.\n\n` + menuText())
     return
   }
-
   const session = getSession(phone)
   let tanggal = session.editDraft.selected?.tanggal_booking
-
   if (text !== '-') {
     const parsed = parseTanggal(text)
     if (!parsed) {
@@ -629,12 +596,7 @@ async function handleEditTanggal(phone: string, text: string) {
     }
     tanggal = parsed
   }
-
-  updateSession(phone, {
-    state: 'edit_jam',
-    editDraft: { ...session.editDraft, tanggal_booking: tanggal },
-  })
-
+  updateSession(phone, { state: 'edit_jam', editDraft: { ...session.editDraft, tanggal_booking: tanggal } })
   await sendMessage(
     phone,
     `✏️ Masukkan *jam baru*:\n\n` +
@@ -649,10 +611,8 @@ async function handleEditJam(phone: string, text: string) {
     await sendMessage(phone, `❌ Edit dibatalkan.\n\n` + menuText())
     return
   }
-
   const session = getSession(phone)
   let jam = session.editDraft.selected?.jam_booking
-
   if (text !== '-') {
     const parsed = parseJam(text)
     if (!parsed) {
@@ -661,12 +621,7 @@ async function handleEditJam(phone: string, text: string) {
     }
     jam = parsed
   }
-
-  updateSession(phone, {
-    state: 'edit_negara',
-    editDraft: { ...session.editDraft, jam_booking: jam },
-  })
-
+  updateSession(phone, { state: 'edit_negara', editDraft: { ...session.editDraft, jam_booking: jam } })
   await sendMessage(
     phone,
     `✏️ Masukkan *negara baru*:\n\n` +
@@ -681,15 +636,9 @@ async function handleEditNegara(phone: string, text: string) {
     await sendMessage(phone, `❌ Edit dibatalkan.\n\n` + menuText())
     return
   }
-
   const session = getSession(phone)
   const negara = text === '-' ? session.editDraft.selected?.negara : text
-
-  updateSession(phone, {
-    state: 'edit_kota',
-    editDraft: { ...session.editDraft, negara },
-  })
-
+  updateSession(phone, { state: 'edit_kota', editDraft: { ...session.editDraft, negara } })
   await sendMessage(
     phone,
     `✏️ Masukkan *kota baru*:\n\n` +
@@ -704,18 +653,11 @@ async function handleEditKota(phone: string, text: string) {
     await sendMessage(phone, `❌ Edit dibatalkan.\n\n` + menuText())
     return
   }
-
   const session = getSession(phone)
   const kota = text === '-' ? session.editDraft.selected?.kota : text
-
-  updateSession(phone, {
-    state: 'edit_konfirmasi',
-    editDraft: { ...session.editDraft, kota },
-  })
-
+  updateSession(phone, { state: 'edit_konfirmasi', editDraft: { ...session.editDraft, kota } })
   const draft = { ...session.editDraft, kota }
   const selected = draft.selected
-
   await sendMessage(
     phone,
     `📋 *KONFIRMASI PERUBAHAN*\n━━━━━━━━━━━━━━━━\n\n` +
@@ -739,16 +681,13 @@ async function handleEditKonfirmasi(phone: string, text: string) {
     await sendMessage(phone, `❌ Edit dibatalkan.\n\n` + menuText())
     return
   }
-
   if (text.toLowerCase() !== 'konfirmasi') {
     await sendMessage(phone, `⚠️ Ketik *"konfirmasi"* untuk menyimpan atau *"batal"* untuk membatalkan.`)
     return
   }
-
   const session = getSession(phone)
   const draft = session.editDraft
   const selected = draft.selected
-
   const { error } = await supabase
     .from('bookings')
     .update({
@@ -759,12 +698,10 @@ async function handleEditKonfirmasi(phone: string, text: string) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', selected.id)
-
   if (error) {
     await sendMessage(phone, `❌ Gagal menyimpan perubahan: ${error.message}`)
     return
   }
-
   updateSession(phone, { state: 'menu', editDraft: {} })
   await sendMessage(
     phone,
@@ -785,7 +722,6 @@ async function handleHapusCari(phone: string, text: string) {
     await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
     return
   }
-
   const { data: results } = await supabase
     .from('bookings')
     .select('*')
@@ -802,10 +738,7 @@ async function handleHapusCari(phone: string, text: string) {
   }
 
   if (results.length === 1) {
-    updateSession(phone, {
-      state: 'hapus_konfirmasi',
-      editDraft: { selected: results[0] },
-    })
+    updateSession(phone, { state: 'hapus_konfirmasi', editDraft: { selected: results[0] } })
     const b = results[0]
     await sendMessage(
       phone,
@@ -825,11 +758,7 @@ async function handleHapusCari(phone: string, text: string) {
     return
   }
 
-  updateSession(phone, {
-    state: 'hapus_pilih',
-    editDraft: { searchResults: results },
-  })
-
+  updateSession(phone, { state: 'hapus_pilih', editDraft: { searchResults: results } })
   let msg = `🗑️ *DITEMUKAN ${results.length} DATA*\n━━━━━━━━━━━━━━━━\n\n`
   results.forEach((b, i) => {
     msg +=
@@ -849,22 +778,15 @@ async function handleHapusPilih(phone: string, text: string) {
     await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
     return
   }
-
   const session = getSession(phone)
   const results = session.editDraft.searchResults || []
   const idx = parseInt(text) - 1
-
   if (isNaN(idx) || idx < 0 || idx >= results.length) {
     await sendMessage(phone, `❌ Pilihan tidak valid. Ketik angka 1 sampai ${results.length}:`)
     return
   }
-
   const selected = results[idx]
-  updateSession(phone, {
-    state: 'hapus_konfirmasi',
-    editDraft: { selected },
-  })
-
+  updateSession(phone, { state: 'hapus_konfirmasi', editDraft: { selected } })
   await sendMessage(
     phone,
     `🗑️ *HAPUS BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
@@ -888,25 +810,20 @@ async function handleHapusKonfirmasi(phone: string, text: string) {
     await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
     return
   }
-
   if (text.toLowerCase() !== 'hapus') {
     await sendMessage(phone, `⚠️ Ketik *"hapus"* untuk menghapus atau *"batal"* untuk membatalkan.`)
     return
   }
-
   const session = getSession(phone)
   const selected = session.editDraft.selected
-
   const { error } = await supabase
     .from('bookings')
     .delete()
     .eq('id', selected.id)
-
   if (error) {
     await sendMessage(phone, `❌ Gagal menghapus booking: ${error.message}`)
     return
   }
-
   updateSession(phone, { state: 'menu', editDraft: {} })
   await sendMessage(
     phone,
@@ -968,14 +885,11 @@ async function handleListBooking(phone: string) {
   await sendMessage(phone, menuText())
 }
 
-// ── Pengingat Otomatis ────────────────────────────────────────────────────────
-
-const OWNER_PHONES_REMINDER = ['+6289682359973', '+6289682037538']
+// ── Pengingat & Auto Hapus Otomatis ──────────────────────────────────────────
 
 export async function checkAndSendReminders(): Promise<void> {
   try {
     const now = new Date()
-    // Ambil waktu sekarang dalam WIB (UTC+7)
     const wibOffset = 7 * 60
     const wibNow = new Date(now.getTime() + wibOffset * 60 * 1000)
 
@@ -984,7 +898,6 @@ export async function checkAndSendReminders(): Promise<void> {
     const currentMinute = wibNow.getUTCMinutes()
     const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`
 
-    // Cari booking hari ini yang jamnya cocok dengan sekarang (dalam window 1 menit)
     const { data: bookings } = await supabase
       .from('bookings')
       .select('*')
@@ -993,32 +906,63 @@ export async function checkAndSendReminders(): Promise<void> {
 
     if (!bookings || bookings.length === 0) return
 
+    // Kelompokkan berdasarkan jam
+    const bookingsByTime: Record<string, any[]> = {}
     for (const booking of bookings) {
       if (!booking.jam_booking) continue
+      const jamKey = booking.jam_booking.substring(0, 5)
+      if (!bookingsByTime[jamKey]) bookingsByTime[jamKey] = []
+      bookingsByTime[jamKey].push(booking)
+    }
 
-      // Cek apakah jam booking cocok dengan waktu sekarang (dalam range 1 menit)
-      const bookingTime = booking.jam_booking.substring(0, 5) // HH:MM
-      if (bookingTime !== currentTimeStr) continue
+    for (const [jamKey, group] of Object.entries(bookingsByTime)) {
+      const [bH, bM] = jamKey.split(':').map(Number)
+      const bookingTotalMinutes = bH * 60 + bM
+      const nowTotalMinutes = currentHour * 60 + currentMinute
 
-      const msg =
-        `🔔 *PENGINGAT BOOKING HARI INI!*\n━━━━━━━━━━━━━━━━\n\n` +
-        `Ada jadwal booking yang dimulai sekarang:\n\n` +
-        `👤 *Nama:* ${booking.nama}\n` +
-        `📞 *Telepon:* ${booking.nomor_telepon}\n` +
-        `🌐 *Website:* ${booking.nama_website || '-'}\n` +
-        `📅 *Tanggal:* ${formatTanggal(booking.tanggal_booking)}\n` +
-        `🕐 *Jam:* ${booking.jam_booking} WIB\n` +
-        `🌍 *Negara:* ${booking.negara}\n` +
-        `🏙️ *Kota:* ${booking.kota}\n\n` +
-        `━━━━━━━━━━━━━━━━`
+      // Kirim pengingat tepat di jam booking
+      if (jamKey === currentTimeStr) {
+        let msg =
+          `🔔 *PENGINGAT BOOKING HARI INI!*\n━━━━━━━━━━━━━━━━\n\n` +
+          `Ada *${group.length}* jadwal booking jam *${jamKey} WIB*:\n\n`
 
-      // Kirim ke semua owner
-      for (const ownerPhone of OWNER_PHONES_REMINDER) {
-        await sendMessage(ownerPhone, msg)
-        await new Promise(r => setTimeout(r, 500))
+        group.forEach((b, i) => {
+          msg +=
+            `*${i + 1}. ${b.nama}*\n` +
+            `   📞 ${b.nomor_telepon}\n` +
+            `   🌐 ${b.nama_website || '-'}\n` +
+            `   📅 ${formatTanggal(b.tanggal_booking)}\n` +
+            `   🕐 ${b.jam_booking} WIB\n` +
+            `   🌍 ${b.negara} - 🏙️ ${b.kota}\n\n`
+        })
+        msg += `━━━━━━━━━━━━━━━━`
+
+        await sendMessage(REMINDER_PHONE, msg)
+        console.log(`🔔 Reminder terkirim jam ${jamKey}: ${group.length} booking`)
       }
 
-      console.log(`🔔 Reminder terkirim untuk booking: ${booking.nama} jam ${booking.jam_booking}`)
+      // Auto hapus 1 menit setelah jam booking
+      if (nowTotalMinutes === bookingTotalMinutes + 1) {
+        const idsToDelete = group.map((b: any) => b.id)
+        const { error } = await supabase
+          .from('bookings')
+          .delete()
+          .in('id', idsToDelete)
+
+        if (!error) {
+          let delMsg =
+            `🗑️ *AUTO HAPUS BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
+            `Booking jam *${jamKey} WIB* telah selesai dan otomatis dihapus:\n\n`
+
+          group.forEach((b, i) => {
+            delMsg += `${i + 1}. *${b.nama}* - 📞 ${b.nomor_telepon}\n`
+          })
+
+          delMsg += `\n━━━━━━━━━━━━━━━━`
+          await sendMessage(REMINDER_PHONE, delMsg)
+          console.log(`🗑️ Auto hapus ${idsToDelete.length} booking jam ${jamKey}`)
+        }
+      }
     }
   } catch (err: any) {
     console.error('❌ Error cek reminder:', err.message)
