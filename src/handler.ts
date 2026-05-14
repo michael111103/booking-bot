@@ -20,7 +20,6 @@ function formatTanggal(dateStr: string): string {
 }
 
 function parseTanggal(input: string): string | null {
-  // Format: DD-MM-YYYY atau DD/MM/YYYY
   const match = input.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/)
   if (!match) return null
   const [, day, month, year] = match
@@ -29,17 +28,28 @@ function parseTanggal(input: string): string | null {
   return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
 }
 
+function parseJam(input: string): string | null {
+  // Format: HH:MM atau HH.MM
+  const match = input.match(/^(\d{1,2})[:.](\d{2})$/)
+  if (!match) return null
+  const [, hour, minute] = match
+  const h = parseInt(hour)
+  const m = parseInt(minute)
+  if (h < 0 || h > 23 || m < 0 || m > 59) return null
+  return `${hour.padStart(2, '0')}:${minute}`
+}
+
 function menuText(): string {
   return (
-    `━━━━━━━━━━━━━━━━━━━━\n` +
     `🤖 *Bot Assistant Nihongo no Benkyo*\n` +
     `━━━━━━━━━━━━━━━━━━━━\n\n` +
-    `Halo Pak! Ada yang bisa saya bantu? 😊\n\n` +
+    `Halo Tuan! Ada yang bisa saya bantu? 😊\n\n` +
     `Silakan pilih menu:\n\n` +
     `1️⃣  *Booking Baru*\n` +
     `2️⃣  *Ubah Jadwal Booking*\n` +
     `3️⃣  *List Semua Booking*\n` +
     `4️⃣  *Cari Booking*\n` +
+    `5️⃣  *Hapus Booking*\n` +
     `0️⃣  *Keluar / Logout*\n\n` +
     `_Ketik angka untuk memilih menu_`
   )
@@ -54,38 +64,30 @@ export async function handleMessage(phone: string, message: string): Promise<voi
 
   console.log(`📩 [${phone}] State: ${session.state} | Pesan: ${text}`)
 
-  // ── Belum Login ────────────────────────────────────────────────────────────
   if (!session.isLoggedIn) {
     await handleLogin(phone, text, session.state)
     return
   }
 
-  // ── Sudah Login ────────────────────────────────────────────────────────────
-
-  // Perintah keluar kapan saja
   if (['0', 'keluar', 'logout', 'exit', 'cancel', 'batal'].includes(textLower)) {
     if (!isOwner(phone)) {
-      // Logout untuk non-owner
       await supabase.from('bot_sessions').update({ is_logged_in: false }).eq('phone', phone)
       resetSession(phone)
       updateSession(phone, { isLoggedIn: false, state: 'idle' })
       await sendMessage(phone, `✅ Anda telah logout. Sampai jumpa! 👋\n\nKetik apa saja untuk login kembali.`)
     } else {
-      // Owner tidak bisa logout, kembali ke menu
       resetSession(phone)
       await sendMessage(phone, menuText())
     }
     return
   }
 
-  // Perintah menu kapan saja
   if (['menu', 'halo', 'hai', 'hi', 'hello', 'help', 'bantuan'].includes(textLower)) {
     updateSession(phone, { state: 'menu', bookingDraft: {}, editDraft: {} })
     await sendMessage(phone, menuText())
     return
   }
 
-  // Routing berdasarkan state
   switch (session.state) {
     case 'menu':
     case 'idle':
@@ -104,6 +106,9 @@ export async function handleMessage(phone: string, message: string): Promise<voi
       break
     case 'booking_tanggal':
       await handleBookingTanggal(phone, text)
+      break
+    case 'booking_jam':
+      await handleBookingJam(phone, text)
       break
     case 'booking_negara':
       await handleBookingNegara(phone, text)
@@ -125,6 +130,9 @@ export async function handleMessage(phone: string, message: string): Promise<voi
     case 'edit_tanggal':
       await handleEditTanggal(phone, text)
       break
+    case 'edit_jam':
+      await handleEditJam(phone, text)
+      break
     case 'edit_negara':
       await handleEditNegara(phone, text)
       break
@@ -133,6 +141,17 @@ export async function handleMessage(phone: string, message: string): Promise<voi
       break
     case 'edit_konfirmasi':
       await handleEditKonfirmasi(phone, text)
+      break
+
+    // Hapus booking
+    case 'hapus_cari':
+      await handleHapusCari(phone, text)
+      break
+    case 'hapus_pilih':
+      await handleHapusPilih(phone, text)
+      break
+    case 'hapus_konfirmasi':
+      await handleHapusKonfirmasi(phone, text)
       break
 
     default:
@@ -158,11 +177,7 @@ async function handleLogin(phone: string, text: string, state: SessionState) {
   if (state === 'wait_username') {
     updateSession(phone, {
       state: 'wait_password',
-      editDraft: { ...getSession(phone).editDraft, selected: { username: text } },
-    })
-    // Simpan username sementara di editDraft.selected
-    updateSession(phone, {
-      bookingDraft: { nama: text }, // pakai bookingDraft.nama sebagai temp username
+      bookingDraft: { nama: text },
     })
     await sendMessage(phone, `Masukkan *password* Anda:`)
     return
@@ -173,7 +188,6 @@ async function handleLogin(phone: string, text: string, state: SessionState) {
     const username = session.bookingDraft.nama || ''
     const password = text
 
-    // Cek di database
     const { data: admin, error } = await supabase
       .from('bot_admins')
       .select('*')
@@ -190,7 +204,6 @@ async function handleLogin(phone: string, text: string, state: SessionState) {
       return
     }
 
-    // Login berhasil
     await supabase.from('bot_sessions').upsert({
       phone,
       is_logged_in: true,
@@ -220,7 +233,7 @@ async function handleMenu(phone: string, text: string) {
       await sendMessage(
         phone,
         `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
-        `Langkah 1/6\n\n` +
+        `Langkah 1/7\n\n` +
         `Masukkan *nama lengkap* peserta:\n\n` +
         `_Ketik "batal" untuk membatalkan_`
       )
@@ -249,11 +262,18 @@ async function handleMenu(phone: string, text: string) {
       )
       break
 
-    default:
+    case '5':
+      updateSession(phone, { state: 'hapus_cari', editDraft: {} })
       await sendMessage(
         phone,
-        `❓ Perintah tidak dikenali.\n\n` + menuText()
+        `🗑️ *HAPUS BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
+        `Masukkan *nama* atau *nomor telepon* peserta yang ingin dihapus:\n\n` +
+        `_Contoh: "Michael" atau "08123456789"_`
       )
+      break
+
+    default:
+      await sendMessage(phone, `❓ Perintah tidak dikenali.\n\n` + menuText())
   }
 }
 
@@ -272,10 +292,10 @@ async function handleBookingNama(phone: string, text: string) {
   await sendMessage(
     phone,
     `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
-    `Langkah 2/6\n\n` +
+    `Langkah 2/7\n\n` +
     `✅ Nama: *${text}*\n\n` +
     `Masukkan *nomor telepon* peserta:\n\n` +
-    `_Contoh: 08123456789 atau +628123456789_`
+    `_Contoh: 08123456789_`
   )
 }
 
@@ -293,7 +313,7 @@ async function handleBookingTelepon(phone: string, text: string) {
   await sendMessage(
     phone,
     `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
-    `Langkah 3/6\n\n` +
+    `Langkah 3/7\n\n` +
     `✅ Nama: *${session.bookingDraft.nama}*\n` +
     `✅ Telepon: *${text}*\n\n` +
     `Masukkan *nama website* (opsional, ketik "-" jika tidak ada):`
@@ -315,7 +335,7 @@ async function handleBookingWebsite(phone: string, text: string) {
   await sendMessage(
     phone,
     `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
-    `Langkah 4/6\n\n` +
+    `Langkah 4/7\n\n` +
     `✅ Nama: *${session.bookingDraft.nama}*\n` +
     `✅ Telepon: *${session.bookingDraft.nomor_telepon}*\n` +
     `✅ Website: *${website || '-'}*\n\n` +
@@ -340,16 +360,44 @@ async function handleBookingTanggal(phone: string, text: string) {
   }
   const session = getSession(phone)
   updateSession(phone, {
-    state: 'booking_negara',
+    state: 'booking_jam',
     bookingDraft: { ...session.bookingDraft, tanggal_booking: tanggal },
   })
   await sendMessage(
     phone,
     `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
-    `Langkah 5/6\n\n` +
-    `✅ Nama: *${session.bookingDraft.nama}*\n` +
-    `✅ Telepon: *${session.bookingDraft.nomor_telepon}*\n` +
+    `Langkah 5/7\n\n` +
     `✅ Tanggal: *${formatTanggal(tanggal)}*\n\n` +
+    `Masukkan *jam booking*:\n\n` +
+    `_Format: HH:MM (contoh: 09:00 atau 14:30)_`
+  )
+}
+
+async function handleBookingJam(phone: string, text: string) {
+  if (text.toLowerCase() === 'batal') {
+    updateSession(phone, { state: 'menu', bookingDraft: {} })
+    await sendMessage(phone, `❌ Booking dibatalkan.\n\n` + menuText())
+    return
+  }
+  const jam = parseJam(text)
+  if (!jam) {
+    await sendMessage(
+      phone,
+      `❌ Format jam salah!\n\nGunakan format *HH:MM*\n_Contoh: 09:00 atau 14:30_`
+    )
+    return
+  }
+  const session = getSession(phone)
+  updateSession(phone, {
+    state: 'booking_negara',
+    bookingDraft: { ...session.bookingDraft, jam_booking: jam },
+  })
+  await sendMessage(
+    phone,
+    `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
+    `Langkah 6/7\n\n` +
+    `✅ Tanggal: *${formatTanggal(session.bookingDraft.tanggal_booking!)}*\n` +
+    `✅ Jam: *${jam} WIB*\n\n` +
     `Masukkan *negara* peserta:\n\n` +
     `_Contoh: Indonesia, Japan, Vietnam_`
   )
@@ -369,8 +417,7 @@ async function handleBookingNegara(phone: string, text: string) {
   await sendMessage(
     phone,
     `📝 *BOOKING BARU*\n━━━━━━━━━━━━━━━━\n\n` +
-    `Langkah 6/6\n\n` +
-    `✅ Nama: *${session.bookingDraft.nama}*\n` +
+    `Langkah 7/7\n\n` +
     `✅ Negara: *${text}*\n\n` +
     `Masukkan *kota* peserta:\n\n` +
     `_Contoh: Jakarta, Surabaya, Osaka_`
@@ -395,6 +442,7 @@ async function handleBookingKota(phone: string, text: string) {
     `📞 *Telepon:* ${draft.nomor_telepon}\n` +
     `🌐 *Website:* ${draft.nama_website || '-'}\n` +
     `📅 *Tanggal:* ${formatTanggal(draft.tanggal_booking!)}\n` +
+    `🕐 *Jam:* ${draft.jam_booking} WIB\n` +
     `🌍 *Negara:* ${draft.negara}\n` +
     `🏙️ *Kota:* ${draft.kota}\n\n` +
     `━━━━━━━━━━━━━━━━\n` +
@@ -411,10 +459,7 @@ async function handleBookingKonfirmasi(phone: string, text: string) {
   }
 
   if (text.toLowerCase() !== 'konfirmasi') {
-    await sendMessage(
-      phone,
-      `⚠️ Ketik *"konfirmasi"* untuk menyimpan atau *"batal"* untuk membatalkan.`
-    )
+    await sendMessage(phone, `⚠️ Ketik *"konfirmasi"* untuk menyimpan atau *"batal"* untuk membatalkan.`)
     return
   }
 
@@ -426,6 +471,7 @@ async function handleBookingKonfirmasi(phone: string, text: string) {
     nomor_telepon: draft.nomor_telepon,
     nama_website: draft.nama_website || null,
     tanggal_booking: draft.tanggal_booking,
+    jam_booking: draft.jam_booking || null,
     negara: draft.negara,
     kota: draft.kota,
     created_by: phone,
@@ -444,6 +490,7 @@ async function handleBookingKonfirmasi(phone: string, text: string) {
     `👤 ${draft.nama}\n` +
     `📞 ${draft.nomor_telepon}\n` +
     `📅 ${formatTanggal(draft.tanggal_booking!)}\n` +
+    `🕐 ${draft.jam_booking} WIB\n` +
     `🌍 ${draft.negara} - 🏙️ ${draft.kota}\n\n` +
     menuText()
   )
@@ -458,7 +505,6 @@ async function handleEditCari(phone: string, text: string) {
     return
   }
 
-  // Cari berdasarkan nama atau telepon
   const { data: results } = await supabase
     .from('bookings')
     .select('*')
@@ -478,7 +524,6 @@ async function handleEditCari(phone: string, text: string) {
   const cariOnly = session.editDraft?.selected?.cariOnly
 
   if (cariOnly) {
-    // Mode cari saja, tampilkan hasil dan kembali ke menu
     let msg = `🔍 *HASIL PENCARIAN: "${text}"*\n━━━━━━━━━━━━━━━━\n\n`
     results.forEach((b, i) => {
       msg +=
@@ -486,6 +531,7 @@ async function handleEditCari(phone: string, text: string) {
         `   📞 ${b.nomor_telepon}\n` +
         `   🌐 ${b.nama_website || '-'}\n` +
         `   📅 ${formatTanggal(b.tanggal_booking)}\n` +
+        `   🕐 ${b.jam_booking || '-'} WIB\n` +
         `   🌍 ${b.negara} - 🏙️ ${b.kota}\n\n`
     })
     msg += `━━━━━━━━━━━━━━━━\nDitemukan *${results.length}* data`
@@ -496,7 +542,6 @@ async function handleEditCari(phone: string, text: string) {
   }
 
   if (results.length === 1) {
-    // Langsung ke edit
     updateSession(phone, {
       state: 'edit_tanggal',
       editDraft: { selected: results[0] },
@@ -508,16 +553,16 @@ async function handleEditCari(phone: string, text: string) {
       `👤 *Nama:* ${results[0].nama}\n` +
       `📞 *Telepon:* ${results[0].nomor_telepon}\n` +
       `📅 *Tanggal lama:* ${formatTanggal(results[0].tanggal_booking)}\n` +
+      `🕐 *Jam lama:* ${results[0].jam_booking || '-'} WIB\n` +
       `🌍 *Negara lama:* ${results[0].negara}\n` +
       `🏙️ *Kota lama:* ${results[0].kota}\n\n` +
       `━━━━━━━━━━━━━━━━\n` +
       `Masukkan *tanggal booking baru*:\n` +
-      `_Format: DD-MM-YYYY_`
+      `_Format: DD-MM-YYYY (ketik "-" jika tidak berubah)_`
     )
     return
   }
 
-  // Banyak hasil — minta pilih
   updateSession(phone, {
     state: 'edit_pilih',
     editDraft: { searchResults: results },
@@ -528,7 +573,8 @@ async function handleEditCari(phone: string, text: string) {
     msg +=
       `${i + 1}. *${b.nama}*\n` +
       `   📞 ${b.nomor_telepon}\n` +
-      `   📅 ${formatTanggal(b.tanggal_booking)}\n\n`
+      `   📅 ${formatTanggal(b.tanggal_booking)}\n` +
+      `   🕐 ${b.jam_booking || '-'} WIB\n\n`
   })
   msg += `Ketik *nomor* untuk memilih yang akan diedit:`
   await sendMessage(phone, msg)
@@ -553,10 +599,10 @@ async function handleEditPilih(phone: string, text: string) {
   await sendMessage(
     phone,
     `✏️ *EDIT BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
-    `Data yang akan diedit:\n\n` +
     `👤 *Nama:* ${selected.nama}\n` +
     `📞 *Telepon:* ${selected.nomor_telepon}\n` +
     `📅 *Tanggal lama:* ${formatTanggal(selected.tanggal_booking)}\n` +
+    `🕐 *Jam lama:* ${selected.jam_booking || '-'} WIB\n` +
     `🌍 *Negara lama:* ${selected.negara}\n` +
     `🏙️ *Kota lama:* ${selected.kota}\n\n` +
     `━━━━━━━━━━━━━━━━\n` +
@@ -585,8 +631,40 @@ async function handleEditTanggal(phone: string, text: string) {
   }
 
   updateSession(phone, {
-    state: 'edit_negara',
+    state: 'edit_jam',
     editDraft: { ...session.editDraft, tanggal_booking: tanggal },
+  })
+
+  await sendMessage(
+    phone,
+    `✏️ Masukkan *jam baru*:\n\n` +
+    `_Jam sekarang: ${session.editDraft.selected?.jam_booking || '-'} WIB_\n` +
+    `_Format: HH:MM atau ketik "-" jika tidak berubah_`
+  )
+}
+
+async function handleEditJam(phone: string, text: string) {
+  if (text.toLowerCase() === 'batal') {
+    updateSession(phone, { state: 'menu', editDraft: {} })
+    await sendMessage(phone, `❌ Edit dibatalkan.\n\n` + menuText())
+    return
+  }
+
+  const session = getSession(phone)
+  let jam = session.editDraft.selected?.jam_booking
+
+  if (text !== '-') {
+    const parsed = parseJam(text)
+    if (!parsed) {
+      await sendMessage(phone, `❌ Format jam salah!\n\nGunakan *HH:MM* atau ketik *"-"* jika tidak berubah:`)
+      return
+    }
+    jam = parsed
+  }
+
+  updateSession(phone, {
+    state: 'edit_negara',
+    editDraft: { ...session.editDraft, jam_booking: jam },
   })
 
   await sendMessage(
@@ -635,7 +713,7 @@ async function handleEditKota(phone: string, text: string) {
     editDraft: { ...session.editDraft, kota },
   })
 
-  const draft = session.editDraft
+  const draft = { ...session.editDraft, kota }
   const selected = draft.selected
 
   await sendMessage(
@@ -643,9 +721,11 @@ async function handleEditKota(phone: string, text: string) {
     `📋 *KONFIRMASI PERUBAHAN*\n━━━━━━━━━━━━━━━━\n\n` +
     `*Data lama:*\n` +
     `📅 ${formatTanggal(selected?.tanggal_booking)}\n` +
+    `🕐 ${selected?.jam_booking || '-'} WIB\n` +
     `🌍 ${selected?.negara} - 🏙️ ${selected?.kota}\n\n` +
     `*Data baru:*\n` +
     `📅 ${formatTanggal(draft.tanggal_booking!)}\n` +
+    `🕐 ${draft.jam_booking || '-'} WIB\n` +
     `🌍 ${draft.negara} - 🏙️ ${kota}\n\n` +
     `━━━━━━━━━━━━━━━━\n` +
     `Ketik *"konfirmasi"* untuk menyimpan\n` +
@@ -673,6 +753,7 @@ async function handleEditKonfirmasi(phone: string, text: string) {
     .from('bookings')
     .update({
       tanggal_booking: draft.tanggal_booking,
+      jam_booking: draft.jam_booking || null,
       negara: draft.negara,
       kota: draft.kota,
       updated_at: new Date().toISOString(),
@@ -690,7 +771,148 @@ async function handleEditKonfirmasi(phone: string, text: string) {
     `✅ *Booking berhasil diubah!* 🎉\n\n` +
     `👤 *${selected.nama}*\n` +
     `📅 ${formatTanggal(draft.tanggal_booking!)}\n` +
+    `🕐 ${draft.jam_booking || '-'} WIB\n` +
     `🌍 ${draft.negara} - 🏙️ ${draft.kota}\n\n` +
+    menuText()
+  )
+}
+
+// ── Hapus Booking ─────────────────────────────────────────────────────────────
+
+async function handleHapusCari(phone: string, text: string) {
+  if (text.toLowerCase() === 'batal') {
+    updateSession(phone, { state: 'menu', editDraft: {} })
+    await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
+    return
+  }
+
+  const { data: results } = await supabase
+    .from('bookings')
+    .select('*')
+    .or(`nama.ilike.%${text}%,nomor_telepon.ilike.%${text}%`)
+    .order('tanggal_booking', { ascending: true })
+
+  if (!results || results.length === 0) {
+    await sendMessage(
+      phone,
+      `❌ Tidak ada booking ditemukan untuk *"${text}"*.\n\n` +
+      `Coba dengan nama lain atau ketik *"menu"* untuk kembali.`
+    )
+    return
+  }
+
+  if (results.length === 1) {
+    updateSession(phone, {
+      state: 'hapus_konfirmasi',
+      editDraft: { selected: results[0] },
+    })
+    const b = results[0]
+    await sendMessage(
+      phone,
+      `🗑️ *HAPUS BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
+      `Data yang akan dihapus:\n\n` +
+      `👤 *Nama:* ${b.nama}\n` +
+      `📞 *Telepon:* ${b.nomor_telepon}\n` +
+      `🌐 *Website:* ${b.nama_website || '-'}\n` +
+      `📅 *Tanggal:* ${formatTanggal(b.tanggal_booking)}\n` +
+      `🕐 *Jam:* ${b.jam_booking || '-'} WIB\n` +
+      `🌍 *Negara:* ${b.negara}\n` +
+      `🏙️ *Kota:* ${b.kota}\n\n` +
+      `━━━━━━━━━━━━━━━━\n` +
+      `⚠️ Ketik *"hapus"* untuk menghapus\n` +
+      `Ketik *"batal"* untuk membatalkan`
+    )
+    return
+  }
+
+  updateSession(phone, {
+    state: 'hapus_pilih',
+    editDraft: { searchResults: results },
+  })
+
+  let msg = `🗑️ *DITEMUKAN ${results.length} DATA*\n━━━━━━━━━━━━━━━━\n\n`
+  results.forEach((b, i) => {
+    msg +=
+      `${i + 1}. *${b.nama}*\n` +
+      `   📞 ${b.nomor_telepon}\n` +
+      `   📅 ${formatTanggal(b.tanggal_booking)}\n` +
+      `   🕐 ${b.jam_booking || '-'} WIB\n` +
+      `   🌍 ${b.negara} - 🏙️ ${b.kota}\n\n`
+  })
+  msg += `Ketik *nomor* untuk memilih yang akan dihapus:`
+  await sendMessage(phone, msg)
+}
+
+async function handleHapusPilih(phone: string, text: string) {
+  if (text.toLowerCase() === 'batal') {
+    updateSession(phone, { state: 'menu', editDraft: {} })
+    await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
+    return
+  }
+
+  const session = getSession(phone)
+  const results = session.editDraft.searchResults || []
+  const idx = parseInt(text) - 1
+
+  if (isNaN(idx) || idx < 0 || idx >= results.length) {
+    await sendMessage(phone, `❌ Pilihan tidak valid. Ketik angka 1 sampai ${results.length}:`)
+    return
+  }
+
+  const selected = results[idx]
+  updateSession(phone, {
+    state: 'hapus_konfirmasi',
+    editDraft: { selected },
+  })
+
+  await sendMessage(
+    phone,
+    `🗑️ *HAPUS BOOKING*\n━━━━━━━━━━━━━━━━\n\n` +
+    `Data yang akan dihapus:\n\n` +
+    `👤 *Nama:* ${selected.nama}\n` +
+    `📞 *Telepon:* ${selected.nomor_telepon}\n` +
+    `🌐 *Website:* ${selected.nama_website || '-'}\n` +
+    `📅 *Tanggal:* ${formatTanggal(selected.tanggal_booking)}\n` +
+    `🕐 *Jam:* ${selected.jam_booking || '-'} WIB\n` +
+    `🌍 *Negara:* ${selected.negara}\n` +
+    `🏙️ *Kota:* ${selected.kota}\n\n` +
+    `━━━━━━━━━━━━━━━━\n` +
+    `⚠️ Ketik *"hapus"* untuk menghapus\n` +
+    `Ketik *"batal"* untuk membatalkan`
+  )
+}
+
+async function handleHapusKonfirmasi(phone: string, text: string) {
+  if (text.toLowerCase() === 'batal') {
+    updateSession(phone, { state: 'menu', editDraft: {} })
+    await sendMessage(phone, `❌ Dibatalkan.\n\n` + menuText())
+    return
+  }
+
+  if (text.toLowerCase() !== 'hapus') {
+    await sendMessage(phone, `⚠️ Ketik *"hapus"* untuk menghapus atau *"batal"* untuk membatalkan.`)
+    return
+  }
+
+  const session = getSession(phone)
+  const selected = session.editDraft.selected
+
+  const { error } = await supabase
+    .from('bookings')
+    .delete()
+    .eq('id', selected.id)
+
+  if (error) {
+    await sendMessage(phone, `❌ Gagal menghapus booking: ${error.message}`)
+    return
+  }
+
+  updateSession(phone, { state: 'menu', editDraft: {} })
+  await sendMessage(
+    phone,
+    `✅ *Booking berhasil dihapus!*\n\n` +
+    `👤 ${selected.nama} - 📞 ${selected.nomor_telepon}\n` +
+    `📅 ${formatTanggal(selected.tanggal_booking)}\n\n` +
     menuText()
   )
 }
@@ -714,7 +936,6 @@ async function handleListBooking(phone: string) {
     return
   }
 
-  // Kirim dalam beberapa pesan jika terlalu banyak
   const chunkSize = 10
   const chunks = []
   for (let i = 0; i < bookings.length; i += chunkSize) {
@@ -736,14 +957,70 @@ async function handleListBooking(phone: string) {
         `   📞 ${b.nomor_telepon}\n` +
         `   🌐 ${b.nama_website || '-'}\n` +
         `   📅 ${formatTanggal(b.tanggal_booking)}\n` +
+        `   🕐 ${b.jam_booking || '-'} WIB\n` +
         `   🌍 ${b.negara} - 🏙️ ${b.kota}\n\n`
     })
     await sendMessage(phone, msg)
-
-    // Delay antar pesan agar tidak spam
     await new Promise(r => setTimeout(r, 500))
   }
 
   updateSession(phone, { state: 'menu' })
   await sendMessage(phone, menuText())
+}
+
+// ── Pengingat Otomatis ────────────────────────────────────────────────────────
+
+const OWNER_PHONES_REMINDER = ['+6289682359973', '+6289682037538']
+
+export async function checkAndSendReminders(): Promise<void> {
+  try {
+    const now = new Date()
+    // Ambil waktu sekarang dalam WIB (UTC+7)
+    const wibOffset = 7 * 60
+    const wibNow = new Date(now.getTime() + wibOffset * 60 * 1000)
+
+    const todayStr = wibNow.toISOString().split('T')[0]
+    const currentHour = wibNow.getUTCHours()
+    const currentMinute = wibNow.getUTCMinutes()
+    const currentTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`
+
+    // Cari booking hari ini yang jamnya cocok dengan sekarang (dalam window 1 menit)
+    const { data: bookings } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('tanggal_booking', todayStr)
+      .not('jam_booking', 'is', null)
+
+    if (!bookings || bookings.length === 0) return
+
+    for (const booking of bookings) {
+      if (!booking.jam_booking) continue
+
+      // Cek apakah jam booking cocok dengan waktu sekarang (dalam range 1 menit)
+      const bookingTime = booking.jam_booking.substring(0, 5) // HH:MM
+      if (bookingTime !== currentTimeStr) continue
+
+      const msg =
+        `🔔 *PENGINGAT BOOKING HARI INI!*\n━━━━━━━━━━━━━━━━\n\n` +
+        `Ada jadwal booking yang dimulai sekarang:\n\n` +
+        `👤 *Nama:* ${booking.nama}\n` +
+        `📞 *Telepon:* ${booking.nomor_telepon}\n` +
+        `🌐 *Website:* ${booking.nama_website || '-'}\n` +
+        `📅 *Tanggal:* ${formatTanggal(booking.tanggal_booking)}\n` +
+        `🕐 *Jam:* ${booking.jam_booking} WIB\n` +
+        `🌍 *Negara:* ${booking.negara}\n` +
+        `🏙️ *Kota:* ${booking.kota}\n\n` +
+        `━━━━━━━━━━━━━━━━`
+
+      // Kirim ke semua owner
+      for (const ownerPhone of OWNER_PHONES_REMINDER) {
+        await sendMessage(ownerPhone, msg)
+        await new Promise(r => setTimeout(r, 500))
+      }
+
+      console.log(`🔔 Reminder terkirim untuk booking: ${booking.nama} jam ${booking.jam_booking}`)
+    }
+  } catch (err: any) {
+    console.error('❌ Error cek reminder:', err.message)
+  }
 }
