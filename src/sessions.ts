@@ -1,6 +1,3 @@
-// Menyimpan state sesi percakapan di memory
-// Setiap nomor WA punya state sendiri
-
 export type SessionState =
   | 'idle'
   | 'wait_username'
@@ -11,6 +8,7 @@ export type SessionState =
   | 'booking_telepon'
   | 'booking_website'
   | 'booking_tanggal'
+  | 'booking_jam'
   | 'booking_negara'
   | 'booking_kota'
   | 'booking_konfirmasi'
@@ -18,15 +16,21 @@ export type SessionState =
   | 'edit_cari'
   | 'edit_pilih'
   | 'edit_tanggal'
+  | 'edit_jam'
   | 'edit_negara'
   | 'edit_kota'
   | 'edit_konfirmasi'
+  // Hapus booking
+  | 'hapus_cari'
+  | 'hapus_pilih'
+  | 'hapus_konfirmasi'
 
 export interface BookingDraft {
   nama?: string
   nomor_telepon?: string
   nama_website?: string
   tanggal_booking?: string
+  jam_booking?: string
   negara?: string
   kota?: string
 }
@@ -35,6 +39,7 @@ export interface EditDraft {
   searchResults?: any[]
   selected?: any
   tanggal_booking?: string
+  jam_booking?: string
   negara?: string
   kota?: string
 }
@@ -50,7 +55,6 @@ export interface Session {
 
 const sessions = new Map<string, Session>()
 
-// Nomor owner yang tidak perlu login
 const OWNER_PHONES = ['+6289682359973', '+6289682037538']
 
 export function getSession(phone: string): Session {
@@ -92,7 +96,6 @@ export function isOwner(phone: string): boolean {
   return OWNER_PHONES.includes(phone)
 }
 
-// Bersihkan sesi yang tidak aktif lebih dari 30 menit
 setInterval(() => {
   const now = new Date()
   sessions.forEach((session, phone) => {
@@ -101,4 +104,4 @@ setInterval(() => {
       sessions.delete(phone)
     }
   })
-}, 5 * 60 * 1000) // cek setiap 5 menit
+}, 5 * 60 * 1000)
